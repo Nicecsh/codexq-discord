@@ -21,23 +21,27 @@ plugin = load_module("codexq_plugin", ROOT / "__init__.py")
 
 
 class FormatSummaryTests(unittest.TestCase):
-    def test_summary_contains_only_quota_fields(self):
+    def test_summary_keeps_quota_fields_and_drops_user_metadata(self):
         result = quota.format_summary(
             {
-                "rateLimits": {
-                    "planType": "pro",
-                    "primary": {"usedPercent": 25, "resetsAt": 0},
-                    "secondary": {"usedPercent": 10, "resetsAt": 0},
-                    "credits": {"balance": 12.5},
+                "user_id": "must-not-appear",
+                "account_id": "must-not-appear",
+                "email": "must-not-appear@example.invalid",
+                "plan_type": "plus",
+                "rate_limit": {
+                    "primary_window": {"used_percent": 25, "reset_at": 0},
+                    "secondary_window": {"used_percent": 10, "reset_at": 0},
                 },
-                "rateLimitResetCredits": {"availableCount": 2},
+                "credits": {"balance": "12.5"},
+                "rate_limit_reset_credits": {"available_count": 2},
             }
         )
-        self.assertIn("Codex 额度（pro）", result)
+        self.assertIn("Codex 额度（plus）", result)
         self.assertIn("5小时窗口：剩余 75%", result)
         self.assertIn("周窗口：剩余 90%", result)
         self.assertIn("额外余额：$12.5", result)
         self.assertIn("可用完整重置券：2 张", result)
+        self.assertNotIn("must-not-appear", result)
 
 
 class PluginHandlerTests(unittest.TestCase):

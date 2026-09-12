@@ -1,20 +1,21 @@
 # codexq-discord
 
-一个 Hermes 插件：把本机已登录的 Codex CLI 额度查询包装为 Discord 原生斜杠指令 `/codexq`。
+一个 Hermes 插件：把 **Hermes 已配置的 OpenAI Codex OAuth** 额度查询包装为 Discord 原生斜杠指令 `/codexq`。
 
 ## 特性
 
 - 注册无参数的 `/codexq` 指令。
-- 通过 `codex app-server --stdio` 查询当前账号的限额。
-- 输出 5 小时窗口、周窗口、额外余额和重置券（服务端返回时）。
-- 不读取、打印或写入 OAuth token、API key、账号邮箱或本机绝对路径。
+- 使用 Hermes 自己的 `openai-codex` OAuth 凭据，不调用或依赖本机 `codex` CLI 登录状态。
+- 通过 ChatGPT Codex 用量端点查询当前账号的 5 小时窗口、周窗口、额外余额和重置券。
+- 输出前只保留额度字段；绝不输出 OAuth token、账号 ID、用户 ID 或邮箱。
 - 不接受用户参数，不通过 shell 执行命令。
 
 ## 前置条件
 
-1. 已安装 [Codex CLI](https://developers.openai.com/codex/cli/)，且 `codex` 位于 `PATH`。
-2. 已完成 Codex CLI 登录（例如执行 `codex login`）。
-3. Hermes 已配置并连接 Discord。
+1. Hermes 的默认模型或凭据池已配置 `openai-codex` OAuth（用 `hermes auth list openai-codex` 验证）。
+2. Hermes 已配置并连接 Discord。
+
+不需要安装或登录本机 Codex CLI。
 
 ## 安装
 
@@ -31,12 +32,13 @@ hermes gateway restart
 /codexq
 ```
 
-> 斜杠命令同步由 Discord 网关完成；首次同步可能需要短暂等待。
+> 原生斜杠命令只支持无参数调用。不要在 `/codexq` 后附加自然语言；那会被命令处理器视为无效参数。
 
 ## 安全说明
 
-- 插件仅启动本地 `codex app-server --stdio` 并请求 `account/rateLimits/read`。
-- 默认输出仅显示额度摘要；不会使用 `--json`，从而避免把潜在账户元数据发送到聊天平台。
+- 插件经 Hermes 的 `resolve_codex_runtime_credentials()` 取得短时运行凭据；不会读取 Codex CLI 凭据存储。
+- 凭据仅作为请求头发往 OpenAI 的 Codex 用量端点，不会打印、写盘或进入 Discord 消息。
+- 上游响应中的 `user_id`、`account_id`、`email` 等字段会被丢弃。
 - 代码不包含任何令牌、账号、Webhook、服务器地址或个人本机路径。
 - `.gitignore` 排除 `.env`、虚拟环境、缓存和编辑器配置。
 
@@ -45,7 +47,7 @@ hermes gateway restart
 ```bash
 python3 -m py_compile __init__.py codexq.py
 python3 -m unittest discover -s tests -v
-python3 codexq.py --help
+# 在运行 Hermes gateway 的 Discord 中调用 /codexq 验证集成
 ```
 
 ## 许可

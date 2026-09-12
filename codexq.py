@@ -1,146 +1,109 @@
 #!/usr/bin/env python3
-"""Read current Codex account rate limits through the local Codex app server.
+"""Read Codex quota through Hermes's configured OpenAI Codex OAuth credential.
 
-The utility does not read, print, or persist authentication tokens. Authentication
-is handled by an already logged-in Codex CLI instance.
+This module deliberately uses Hermes's credential resolver instead of the local
+Codex CLI. It never prints, persists, or returns the OAuth credential, account
+ID, user ID, or email supplied by the upstream usage endpoint.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
-import os
-import select
-import shutil
-import subprocess
-import sys
-import time
 from datetime import datetime
+from typing import Any
 from zoneinfo import ZoneInfo
 
-REQUEST_TIMEOUT_SECONDS = 45
+REQUEST_TIMEOUT_SECONDS = 20
 TIMEZONE = ZoneInfo("Asia/Shanghai")
 
 
 class CodexQuotaError(RuntimeError):
-    """A readable error raised while querying Codex quota."""
+    """A readable error raised while fetching Hermes Codex quota."""
 
 
-def request(process: subprocess.Popen[str], request_id: int, method: str, params: dict) -> dict:
-    """Send one JSON-RPC request and return the matching response payload."""
-    if process.stdin is None or process.stdout is None:
-        raise CodexQuotaError("Codex app server 的标准输入输出不可用")
+def fetch_usage() -> dict[str, Any]:
+    """Fetch usage with Hermes's own resolved Codex OAuth credential.
 
-    payload = {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params}
-    process.stdin.write(json.dumps(payload, separators=(",", ":")) + "\n")
-    process.stdin.flush()
-
-    deadline = time.monotonic() + REQUEST_TIMEOUT_SECONDS
-    while time.monotonic() < deadline:
-        remaining = max(0.0, deadline - time.monotonic())
-        ready, _, _ = select.select([process.stdout], [], [], min(1.0, remaining))
-        if not ready:
-            continue
-        line = process.stdout.readline()
-        if not line:
-            raise CodexQuotaError("Codex app server 意外退出")
-        try:
-            response = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if response.get("id") != request_id:
-            continue
-        if "error" in response:
-            message = response["error"].get("message", "未知错误")
-            raise CodexQuotaError(f"Codex 返回错误：{message}")
-        return response.get("result", {})
-
-    raise CodexQuotaError(f"等待 Codex 响应超时（{REQUEST_TIMEOUT_SECONDS} 秒）")
-
-
-def fetch_rate_limits() -> dict:
-    """Start Codex app-server and request the current account rate limits."""
-    codex = shutil.which("codex")
-    if not codex:
-        raise CodexQuotaError("未找到 codex 命令；请确认 Codex CLI 已安装且在 PATH 中")
-
-    process = subprocess.Popen(
-        [codex, "app-server", "--stdio"],
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        text=True,
-        bufsize=1,
-        env=os.environ.copy(),
-    )
+    Imports are intentionally delayed: source inspection and unit tests do not
+    need a Hermes runtime, while the installed plugin always runs inside one.
+    """
     try:
-        request(
-            process,
-            1,
-            "initialize",
-            {
-                "clientInfo": {"name": "codexq-discord", "version": "1.0.0"},
-                "capabilities": {"experimentalApi": True},
-            },
-        )
-        return request(process, 2, "account/rateLimits/read", {})
-    finally:
-        process.terminate()
-        try:
-            process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=5)
+        import httpx
+        from agent.codex_headers import codex_cloudflare_headers
+        from hermes_cli.auth_codex import _codex_usage_probe_url, resolve_codex_runtime_credentials
+    except ImportError as exc:
+        raise CodexQuotaError("此命令必须在 Hermes Agent 的 Python 环境中运行") from exc
+
+    credentials = resolve_codex_runtime_credentials()
+    token = credentials.get("api_key")
+    base_url = credentials.get("base_url")
+    if not isinstance(token, str) or not token or not isinstance(base_url, str) or not base_url:
+        raise CodexQuotaError("未找到 Hermes 配置的 Codex OAuth 凭据")
+
+    headers = codex_cloudflare_headers(token, base_url=base_url)
+    headers.update({"Authorization": f"Bearer {token}", "Accept": "application/json"})
+    url = _codex_usage_probe_url(base_url)
+    try:
+        response = httpx.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+    except httpx.HTTPError as exc:
+        raise CodexQuotaError("无法连接 Codex 额度服务") from exc
+    if response.status_code != 200:
+        raise CodexQuotaError(f"Codex 额度服务返回 HTTP {response.status_code}")
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise CodexQuotaError("Codex 额度服务返回了无效响应") from exc
+    if not isinstance(payload, dict) or not isinstance(payload.get("rate_limit"), dict):
+        raise CodexQuotaError("Codex 额度服务响应格式不完整")
+    return payload
 
 
-def format_time(timestamp: int | None) -> str:
+def format_time(timestamp: int | float | None) -> str:
     """Format an epoch timestamp in the configured display timezone."""
-    if timestamp is None:
+    if not isinstance(timestamp, (int, float)):
         return "未知"
     return datetime.fromtimestamp(timestamp, TIMEZONE).strftime("%m月%d日 %H:%M")
 
 
-def format_summary(data: dict) -> str:
-    """Return a human-readable Chinese summary without raw account metadata."""
-    limits = data.get("rateLimits") or {}
-    primary = limits.get("primary") or {}
-    secondary = limits.get("secondary") or {}
-    credits = limits.get("credits") or {}
-    reset_credits = data.get("rateLimitResetCredits") or {}
+def _format_window(label: str, window: Any) -> str | None:
+    if not isinstance(window, dict):
+        return None
+    used = window.get("used_percent")
+    if not isinstance(used, (int, float)):
+        return None
+    remaining = max(0, min(100, 100 - used))
+    return f"• {label}：剩余 {remaining}%（已用 {used}%），{format_time(window.get('reset_at'))} 重置"
 
-    plan = limits.get("planType") or "未知"
+
+def format_summary(data: dict[str, Any]) -> str:
+    """Return quota-only output, excluding account and user metadata."""
+    rate_limit = data.get("rate_limit") or {}
+    credits = data.get("credits") or {}
+    reset_credits = data.get("rate_limit_reset_credits") or {}
+
+    plan = data.get("plan_type") if isinstance(data.get("plan_type"), str) else "未知"
     lines = [f"Codex 额度（{plan}）"]
-    primary_used = primary.get("usedPercent")
-    secondary_used = secondary.get("usedPercent")
-    if primary_used is not None:
-        lines.append(f"• 5小时窗口：剩余 {100 - primary_used}%（已用 {primary_used}%），{format_time(primary.get('resetsAt'))} 重置")
-    if secondary_used is not None:
-        lines.append(f"• 周窗口：剩余 {100 - secondary_used}%（已用 {secondary_used}%），{format_time(secondary.get('resetsAt'))} 重置")
-    if credits.get("balance") is not None:
-        lines.append(f"• 额外余额：${credits['balance']}")
-    available = reset_credits.get("availableCount")
-    if available is not None:
+    for label, key in (("5小时窗口", "primary_window"), ("周窗口", "secondary_window")):
+        line = _format_window(label, rate_limit.get(key))
+        if line:
+            lines.append(line)
+    balance = credits.get("balance") if isinstance(credits, dict) else None
+    if balance is not None:
+        lines.append(f"• 额外余额：${balance}")
+    available = reset_credits.get("available_count") if isinstance(reset_credits, dict) else None
+    if isinstance(available, int):
         lines.append(f"• 可用完整重置券：{available} 张")
-        details = reset_credits.get("credits") or []
-        if details and details[0].get("expiresAt"):
-            lines.append(f"  到期：{format_time(details[0]['expiresAt'])}")
     return "\n".join(lines)
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="查询当前 Codex 账号额度")
-    parser.add_argument("--json", action="store_true", help="输出 API 原始 JSON（可能包含账户元数据）")
-    args = parser.parse_args()
+    parser = argparse.ArgumentParser(description="通过 Hermes Codex OAuth 查询当前额度")
+    parser.parse_args()
     try:
-        data = fetch_rate_limits()
+        print(format_summary(fetch_usage()))
     except CodexQuotaError as exc:
-        print(f"codexq：{exc}", file=sys.stderr)
+        print(f"codexq：{exc}")
         return 1
-
-    if args.json:
-        print(json.dumps(data, ensure_ascii=False, indent=2))
-    else:
-        print(format_summary(data))
     return 0
 
 
