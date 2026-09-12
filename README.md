@@ -5,7 +5,7 @@
 ## 特性
 
 - 注册无参数的 `/codexq` 指令。
-- 使用 Hermes 自己的 `openai-codex` OAuth 凭据，不调用或依赖本机 `codex` CLI 登录状态。
+- 使用 Hermes 自己的 `openai-codex` OAuth 凭据查询额度。
 - 通过 ChatGPT Codex 用量端点查询当前账号的 5 小时窗口、周窗口、额外余额和重置券。
 - 输出前只保留额度字段；绝不输出 OAuth token、账号 ID、用户 ID 或邮箱。
 - 不接受用户参数，不通过 shell 执行命令。
@@ -15,11 +15,9 @@
 1. Hermes 的默认模型或凭据池已配置 `openai-codex` OAuth（用 `hermes auth list openai-codex` 验证）。
 2. Hermes 已配置并连接 Discord。
 
-不需要安装或登录本机 Codex CLI。
-
 ## 示例
 
-下图为已脱敏的 Discord `/codexq` 输出示例：用户头像和用户名已移除，保留命令与额度展示布局。
+下图为 Discord `/codexq` 的额度输出示例。
 
 ![Discord /codexq 示例](assets/codexq-discord-example.jpg)
 
@@ -42,7 +40,7 @@ hermes gateway restart
 
 ## 安全说明
 
-- 插件经 Hermes 的 `resolve_codex_runtime_credentials()` 取得短时运行凭据；不会读取 Codex CLI 凭据存储。
+- 插件经 Hermes 的 `resolve_codex_runtime_credentials()` 取得短时运行凭据。
 - 凭据仅作为请求头发往 OpenAI 的 Codex 用量端点，不会打印、写盘或进入 Discord 消息。
 - 上游响应中的 `user_id`、`account_id`、`email` 等字段会被丢弃。
 - 代码不包含任何令牌、账号、Webhook、服务器地址或个人本机路径。
