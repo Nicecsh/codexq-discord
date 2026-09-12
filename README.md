@@ -17,6 +17,12 @@
 
 不需要安装或登录本机 Codex CLI。
 
+## 示例
+
+下图为已脱敏的 Discord `/codexq` 输出示例：用户头像和用户名已移除，保留命令与额度展示布局。
+
+![Discord /codexq 示例](assets/codexq-discord-example.jpg)
+
 ## 安装
 
 将此目录放到当前 Hermes profile 的插件目录中，例如：
