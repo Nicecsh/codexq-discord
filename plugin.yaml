@@ -1,0 +1,3 @@
+name: codexq-discord
+version: "1.0.0"
+description: "Expose the bundled Codex quota checker as the /codexq Discord command."
