@@ -43,6 +43,14 @@ class FormatSummaryTests(unittest.TestCase):
         self.assertIn("可用完整重置券：2 张", result)
         self.assertNotIn("must-not-appear", result)
 
+    def test_summary_shows_each_reset_credit_expiration(self):
+        result = quota.format_summary(
+            {"rate_limit": {}, "rate_limit_reset_credits": {"available_count": 2}},
+            [0, 3600],
+        )
+        self.assertIn("重置券 1：01月01日 08:00 到期", result)
+        self.assertIn("重置券 2：01月01日 09:00 到期", result)
+
 
 class PluginHandlerTests(unittest.TestCase):
     def test_rejects_arguments_without_starting_process(self):

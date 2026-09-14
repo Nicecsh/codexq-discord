@@ -6,7 +6,7 @@
 
 - 注册无参数的 `/codexq` 指令。
 - 使用 Hermes 自己的 `openai-codex` OAuth 凭据查询额度。
-- 通过 ChatGPT Codex 用量端点查询当前账号的 5 小时窗口、周窗口、额外余额和重置券。
+- 通过 ChatGPT Codex 用量端点查询当前账号的 5 小时窗口、周窗口、额外余额和重置券；本机 Codex CLI 同账号时额外显示每张可用重置券的到期时间。
 - 输出前只保留额度字段；绝不输出 OAuth token、账号 ID、用户 ID 或邮箱。
 - 不接受用户参数，不通过 shell 执行命令。
 
