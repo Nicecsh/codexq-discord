@@ -1,5 +1,26 @@
 # codexq-discord
 
+A [Hermes Agent](https://hermes-agent.nousresearch.com/docs) plugin that turns your already-configured **OpenAI Codex (ChatGPT plan) OAuth credential** into a native Discord slash command for checking quota.
+
+- Registers a single no-argument `/codexq` slash command.
+- Queries the Codex usage endpoint with the credential resolved by Hermes' own `openai-codex` credential pool — no extra API key, no separate login.
+- Reports the 5-hour window, the weekly window, the extra credit balance, and any banked reset credits (including expiry dates when the local Codex CLI shares the same account).
+- Emits quota fields only: OAuth tokens, account IDs, user IDs, and emails are dropped from the upstream response before anything reaches Discord.
+- Accepts no user input and never executes shell commands.
+
+**Requirements:** Hermes with `openai-codex` OAuth configured (`hermes auth list openai-codex`) and Discord connected.
+
+**Quota cooldown:** Hermes resolves the credential *before* the request. Once the account hits a usage limit, Hermes benches that credential for the provider-supplied reset window and `/codexq` reports the local cooldown error instead of live percentages. That is a quota state, not a login failure — do not re-authenticate.
+
+```bash
+cp -R codexq-discord ~/.hermes/plugins/codexq-discord
+hermes gateway restart
+```
+
+MIT licensed. Detailed documentation in Chinese below.
+
+---
+
 一个 Hermes 插件：把 **Hermes 已配置的 OpenAI Codex OAuth** 额度查询包装为 Discord 原生斜杠指令 `/codexq`。
 
 ## 特性
